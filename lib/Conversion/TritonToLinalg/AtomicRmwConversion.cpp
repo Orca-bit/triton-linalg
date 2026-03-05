@@ -105,8 +105,10 @@ public:
     auto loc = op.getLoc();
     auto elementType = op.getResult().getType();
     auto memref = getMemRef(loc, op.getPtr(), elementType, rewriter);
+    auto memrefTy = cast<MemRefType>(memref.getType());
+    auto tensorTy = RankedTensorType::get(memrefTy.getShape(), memrefTy.getElementType());
     Value originTensor =
-        rewriter.create<bufferization::ToTensorOp>(loc, memref, true, true);
+        rewriter.create<bufferization::ToTensorOp>(loc, tensorTy, memref, true, true);
 
     auto zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     RankedTensorType originTensorTy =
@@ -201,8 +203,10 @@ public:
       }
     }
 
+    auto memrefTy = cast<MemRefType>(ptrInfo->memref.getType());
+    auto tensorTy = RankedTensorType::get(memrefTy.getShape(), memrefTy.getElementType());
     Value originalTensor = rewriter.create<bufferization::ToTensorOp>(
-        loc, ptrInfo->memref, true, true);
+        loc, tensorTy, ptrInfo->memref, true, true);
 
     // Create atomic_rmw here.
     // Init atomic output.
@@ -276,8 +280,10 @@ public:
     if (failed(tracker.parse(op.getPtr(), loc, rewriter)))
       return failure();
     Value memref = getDynamicMemRef(loc, tracker.getBase(), resultTy, rewriter);
+    auto memrefTy = cast<MemRefType>(memref.getType());
+    auto tensorTy = RankedTensorType::get(memrefTy.getShape(), memrefTy.getElementType());
     Value originTensor =
-        rewriter.create<bufferization::ToTensorOp>(loc, memref, true, true);
+        rewriter.create<bufferization::ToTensorOp>(loc, tensorTy, memref, true, true);
     // Get value.
     Value valueTensor =
         triton::flattenValueToMatchGatherScatter(rewriter, op.getVal(), true);

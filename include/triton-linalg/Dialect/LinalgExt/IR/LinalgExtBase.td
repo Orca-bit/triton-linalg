@@ -26,19 +26,15 @@ def LinalgExt_Dialect : Dialect {
     some operations to be added in the next versions.
   }];
   let cppNamespace = "::mlir::triton::linalg_ext";
-  let dependentDialects = [
-    "arith::ArithDialect",
-    "affine::AffineDialect",
-    "math::MathDialect",
-    "memref::MemRefDialect",
-    "tensor::TensorDialect",
-    "linalg::LinalgDialect"
-  ];
+  let dependentDialects = ["arith::ArithDialect", "affine::AffineDialect",
+                           "math::MathDialect", "memref::MemRefDialect",
+                           "tensor::TensorDialect", "linalg::LinalgDialect"];
   let hasOperationAttrVerify = 1;
   let hasConstantMaterializer = 1;
   let extraClassDeclaration = [{
     using RegionBuilderFunType = llvm::function_ref<
-      void(ImplicitLocOpBuilder &b, Block &, ArrayRef<NamedAttribute>)>;
+      void(ImplicitLocOpBuilder &b, Block &, ArrayRef<NamedAttribute>,
+           llvm::function_ref<InFlightDiagnostic()>)>;
     RegionBuilderFunType getRegionBuilder(StringRef name) {
       return namedStructuredOpRegionBuilders.lookup(name);
     }
@@ -47,19 +43,19 @@ def LinalgExt_Dialect : Dialect {
   }];
 }
 
-class LinalgExt_PureOp<string mnemonic, list<Trait> traits = []> :
-    Op<LinalgExt_Dialect, mnemonic, traits> {
-}
+class LinalgExt_PureOp<string mnemonic, list<Trait> traits = []>
+    : Op<LinalgExt_Dialect, mnemonic, traits> {}
 
 //===----------------------------------------------------------------------===//
 // LinalgExt base class.
 //===----------------------------------------------------------------------===//
 class LinalgExtBase_Op<string mnemonic, list<Trait> props>
-  : Op<LinalgExt_Dialect, mnemonic, !listconcat([
-       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-       DestinationStyleOpInterface,
-       LinalgExtInterface,
-       ReifyRankedShapedTypeOpInterface], props)> {
+    : Op<LinalgExt_Dialect, mnemonic,
+         !listconcat([DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                      DeclareOpInterfaceMethods<ConditionallySpeculatable>,
+                      DestinationStyleOpInterface, LinalgExtInterface,
+                      ReifyRankedShapedTypeOpInterface],
+                     props)> {
   let hasFolder = 1;
   let hasVerifier = 1;
   code extraLinalgExtOpClassDeclaration = [{}];
@@ -73,12 +69,13 @@ class LinalgExtBase_Op<string mnemonic, list<Trait> props>
 // first operands. These may be optionally followed by non-view operands
 // depending on the specific Linalg op.
 class LinalgStructuredBase_Op<string mnemonic, list<Trait> props>
-  : Op<LinalgExt_Dialect, mnemonic, !listconcat([
-       SingleBlockImplicitTerminator<"linalg::YieldOp">,
-       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-       DestinationStyleOpInterface,
-       LinalgStructuredInterface,
-       ReifyRankedShapedTypeOpInterface], props)> {
+    : Op<LinalgExt_Dialect, mnemonic,
+         !listconcat([SingleBlockImplicitTerminator<"linalg::YieldOp">,
+                      DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                      DeclareOpInterfaceMethods<ConditionallySpeculatable>,
+                      DestinationStyleOpInterface, LinalgStructuredInterface,
+                      ReifyRankedShapedTypeOpInterface],
+                     props)> {
   code structuredOpsBaseDecls = [{
     // Return whether the op accesses the iteration indice.
     bool hasIndexSemantics() {
@@ -94,6 +91,6 @@ class LinalgStructuredBase_Op<string mnemonic, list<Trait> props>
   let hasFolder = 1;
 }
 
-def TensorOrMemref :
-    AnyTypeOf<[AnyMemRef, AnyRankedTensor], "", "::mlir::ShapedType">;
+def TensorOrMemref
+    : AnyTypeOf<[AnyMemRef, AnyRankedTensor], "", "::mlir::ShapedType">;
 #endif // TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTBASE_TD

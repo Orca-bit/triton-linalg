@@ -300,7 +300,7 @@ LogicalResult ViewOp::verify() {
   // identity layout.
   int64_t resultOffset;
   SmallVector<int64_t, 4> resultStrides;
-  if (failed(getStridesAndOffset(resultType, resultStrides, resultOffset)))
+  if (failed(resultType.getStridesAndOffset(resultStrides, resultOffset)))
     return emitError("expected result type to have strided layout but found ")
            << resultType;
 
@@ -342,21 +342,25 @@ LogicalResult ViewOp::verify() {
 void PrintOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  for (auto operand : getDpsInputs()) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
+  for (auto *operand : getDpsInputOperands()) {
+    if (!llvm::isa<MemRefType>(operand->get().getType()))
       continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand,
+    effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
   }
-  for (auto operand : getDpsInits()) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
+  for (auto &operand : getDpsInitsMutable()) {
+    if (!llvm::isa<MemRefType>(operand.get().getType()))
       continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand,
+    effects.emplace_back(MemoryEffects::Read::get(), &operand, /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), operand,
+    effects.emplace_back(MemoryEffects::Write::get(), &operand, /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
   }
-  effects.emplace_back(MemoryEffects::Write::get(), 0, false,
+  effects.emplace_back(MemoryEffects::Write::get(), /*stage=*/1,
+                       /*effectOnFullRegion=*/false,
                        SideEffects::DefaultResource::get());
 }
 
@@ -387,7 +391,8 @@ LogicalResult PrintOp::verify() {
 void ScalarPrintOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  effects.emplace_back(MemoryEffects::Write::get(), 0, false,
+  effects.emplace_back(MemoryEffects::Write::get(), /*stage=*/1,
+                       /*effectOnFullRegion=*/false,
                        SideEffects::DefaultResource::get());
 }
 
@@ -419,18 +424,21 @@ LogicalResult ScalarPrintOp::verify() {
 void BitcastExtOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  for (auto operand : getDpsInputs()) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
+  for (auto *operand : getDpsInputOperands()) {
+    if (!llvm::isa<MemRefType>(operand->get().getType()))
       continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand,
+    effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
   }
-  for (auto operand : getDpsInits()) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
+  for (auto &operand : getDpsInitsMutable()) {
+    if (!llvm::isa<MemRefType>(operand.get().getType()))
       continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand,
+    effects.emplace_back(MemoryEffects::Read::get(), &operand, /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), operand,
+    effects.emplace_back(MemoryEffects::Write::get(), &operand, /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
   }
 }
@@ -471,7 +479,10 @@ LogicalResult BitcastExtOp::verify() {
     auto outBitwidth = outMemType.getElementTypeBitWidth();
     bool isLowToHigh = inBitwidth < outBitwidth ? 1 : 0;
     auto rank = memType.getRank();
-    auto stride = getStridesAndOffset(memType).first;
+    SmallVector<int64_t> stride;
+    int64_t offset;
+    if (failed(memType.getStridesAndOffset(stride, offset)))
+      return emitOpError() << "failed to get strides";
     int64_t inLastDim = memType.getDimSize(rank - 1);
 
     if (isLowToHigh && (stride[rank - 1] != 1))

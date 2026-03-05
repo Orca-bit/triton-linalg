@@ -94,8 +94,10 @@ public:
       return failure();
     }
 
+    auto memrefTy = cast<MemRefType>(ptrInfo->memref.getType());
+    auto tensorTy = RankedTensorType::get(memrefTy.getShape(), memrefTy.getElementType());
     Value sliceTensor = rewriter.create<bufferization::ToTensorOp>(
-        loc, ptrInfo->memref, true, true);
+        loc, tensorTy, ptrInfo->memref, true, true);
     auto tensorType = cast<RankedTensorType>(sliceTensor.getType());
     Value emptyTensor = rewriter.create<tensor::EmptyOp>(
         loc, tensorType.getShape(), tensorType.getElementType(),
@@ -282,8 +284,10 @@ public:
     if (failed(tracker.parse(op.getPtr(), loc, rewriter)))
       return failure();
     Value memref = getDynamicMemRef(loc, tracker.getBase(), resultTy, rewriter);
+    auto memrefTy = cast<MemRefType>(memref.getType());
+    auto tensorTy = RankedTensorType::get(memrefTy.getShape(), memrefTy.getElementType());
     Value originTensor =
-        rewriter.create<bufferization::ToTensorOp>(loc, memref, true, true);
+        rewriter.create<bufferization::ToTensorOp>(loc, tensorTy, memref, true, true);
 
     // Get window.
     auto window = op.getOther();
@@ -353,8 +357,10 @@ public:
       return failure();
 
     Value memref = getDynamicMemRef(loc, tracker.getBase(), valueTy, rewriter);
+    auto memrefTy = cast<MemRefType>(memref.getType());
+    auto tensorTy = RankedTensorType::get(memrefTy.getShape(), memrefTy.getElementType());
     Value originTensor =
-        rewriter.create<bufferization::ToTensorOp>(loc, memref, true, true);
+        rewriter.create<bufferization::ToTensorOp>(loc, tensorTy, memref, true, true);
     // Get scatter init.
     Value scatterInit = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), getDim(rewriter, loc, originTensor, 0),
@@ -459,8 +465,10 @@ public:
                   resultTy.getElementType(), rewriter,
                   getCacheModeAttr(op.getContext(), op.getCache()));
 
+    auto memrefTy = cast<MemRefType>(originalMemRef.getType());
+    auto tensorTy = RankedTensorType::get(memrefTy.getShape(), memrefTy.getElementType());
     Value sliceTensor = rewriter.create<bufferization::ToTensorOp>(
-        loc, originalMemRef, true, true);
+        loc, tensorTy, originalMemRef, true, true);
     auto tensorType = cast<RankedTensorType>(sliceTensor.getType());
     Value emptyTensor = rewriter.create<tensor::EmptyOp>(
         loc, tensorType.getShape(), tensorType.getElementType(),

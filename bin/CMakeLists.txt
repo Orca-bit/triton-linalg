@@ -19,6 +19,9 @@ target_link_libraries(triton-linalg-opt PRIVATE
   MLIROptLib
   MLIRPass
   MLIRTransforms
+  MLIRRegisterAllDialects
+  MLIRRegisterAllExtensions
+  MLIRRegisterAllPasses
   MLIRFuncAllExtensions
 )
 

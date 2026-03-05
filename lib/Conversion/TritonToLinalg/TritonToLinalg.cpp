@@ -477,7 +477,8 @@ struct TritonAddPtrPattern : public OpConversionPattern<triton::AddPtrOp> {
       // by the byte width of the data pointed to by the pointer.
       offset = rewriter.create<arith::MulIOp>(
           loc, offset,
-          rewriter.create<arith::ConstantIntOp>(loc, bytesPerElement, type));
+          rewriter.create<arith::ConstantOp>(
+              loc, rewriter.getIntegerAttr(type, bytesPerElement)));
       return rewriter.create<arith::AddIOp>(loc, ptr, offset);
     };
 
@@ -533,10 +534,10 @@ struct TritonMakeRangePattern
     auto initOp = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
                                                    resultTy.getElementType());
 
-    auto start = rewriter.create<arith::ConstantIntOp>(
-        loc, op.getStart(), op.getStartAttr().getType());
-    auto end = rewriter.create<arith::ConstantIntOp>(loc, op.getEnd(),
-                                                     op.getEndAttr().getType());
+    auto start = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIntegerAttr(op.getStartAttr().getType(), op.getStart()));
+    auto end = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIntegerAttr(op.getEndAttr().getType(), op.getEnd()));
 
     rewriter.replaceOpWithNewOp<triton::linalg_ext::MakeRangeOp>(
         op, op.getType(), ValueRange{start, end}, ValueRange{initOp});
@@ -1280,8 +1281,8 @@ public:
     auto valType = condVal.getType();
 
     auto assertMessage =
-        llvm::formatv("{0}:{1}: {2} Assertion `{3}` failed", op.getFile(),
-                      op.getLine(), op.getFunc(), op.getMessage());
+        llvm::formatv("{0}:{1}: {2} Assertion `{3}` failed", op.getLoc(),
+                      op.getLoc(), op.getLoc(), op.getMessage());
     auto rankType = cast<RankedTensorType>(valType);
 
     // Only supports int type.
@@ -1754,7 +1755,7 @@ void triton::TritonToLinalgPass::runOnOperation() {
       [](Operation *op) { return !op->getUsers().empty(); });
   target.addLegalOp<LLVM::IntToPtrOp, LLVM::PtrToIntOp, LLVM::GEPOp,
                     triton::aux::StoreResourceOp, triton::aux::ViewOp,
-                    bufferization::ToTensorOp, bufferization::ToMemrefOp,
+                    bufferization::ToTensorOp,
                     bufferization::MaterializeInDestinationOp,
                     triton::aux::PrintOp, triton::aux::ScalarPrintOp>();
   target.addDynamicallyLegalDialect<

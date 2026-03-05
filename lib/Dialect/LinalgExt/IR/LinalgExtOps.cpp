@@ -117,23 +117,57 @@ static void buildIdentityRegion(OpBuilder &builder, Location loc,
 static void getGenericEffectsImpl(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects,
-    ValueRange results, const ValueRange inputOperands,
-    ValueRange outputOperands) {
-  for (auto operand : inputOperands) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
+    ValueRange results, ArrayRef<OpOperand *> inputOperands,
+    MutableOperandRange outputOperands) {
+  for (auto *operand : inputOperands) {
+    if (!llvm::isa<MemRefType>(operand->get().getType()))
       continue;
     effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
                          /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
   }
-  for (auto operand : outputOperands) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
+  for (int i = 0, e = outputOperands.size(); i < e; ++i) {
+    OpOperand &operand = outputOperands[i];
+    if (!llvm::isa<MemRefType>(operand.get().getType()))
       continue;
-    effects.emplace_back(MemoryEffects::Write::get(), operand, /*stage=*/1,
+    effects.emplace_back(MemoryEffects::Write::get(), &operand, /*stage=*/1,
                          /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
   }
 }
+
+static Speculation::Speculatability getGenericSpeculatabilityImpl(LinalgOp op) {
+  return Speculation::Speculatable;
+}
+
+#define DEFINE_GET_SPECULATABILITY(OP)                                         \
+  Speculation::Speculatability OP::getSpeculatability() {                      \
+    return Speculation::Speculatable;                                          \
+  }
+
+DEFINE_GET_SPECULATABILITY(BatchConv2DNhwcFhwcOp)
+DEFINE_GET_SPECULATABILITY(MakeRangeOp)
+DEFINE_GET_SPECULATABILITY(Im2ColOp)
+DEFINE_GET_SPECULATABILITY(ArgMaxOp)
+DEFINE_GET_SPECULATABILITY(ArgMinOp)
+DEFINE_GET_SPECULATABILITY(ReduceSumOp)
+DEFINE_GET_SPECULATABILITY(ReduceMaxOp)
+DEFINE_GET_SPECULATABILITY(ReduceMinOp)
+DEFINE_GET_SPECULATABILITY(ReduceMaxNanOp)
+DEFINE_GET_SPECULATABILITY(ReduceMinNanOp)
+DEFINE_GET_SPECULATABILITY(ScatterOp)
+DEFINE_GET_SPECULATABILITY(GatherOp)
+DEFINE_GET_SPECULATABILITY(AtomicRMWOp)
+DEFINE_GET_SPECULATABILITY(GatherAtomicRMWOp)
+DEFINE_GET_SPECULATABILITY(GatherAtomicCASOp)
+DEFINE_GET_SPECULATABILITY(AtomicCASOp)
+DEFINE_GET_SPECULATABILITY(ScanOp)
+DEFINE_GET_SPECULATABILITY(HistogramOp)
+DEFINE_GET_SPECULATABILITY(FlipOp)
+DEFINE_GET_SPECULATABILITY(PadOp)
+DEFINE_GET_SPECULATABILITY(AssertOp)
+DEFINE_GET_SPECULATABILITY(LibdeviceCallOp)
+DEFINE_GET_SPECULATABILITY(TriOp)
 
 //===----------------------------------------------------------------------===//
 // BEGIN copied from mlir/lib/Dialect/Linalg/IR/LinalgOps.cpp
@@ -142,11 +176,11 @@ static void getGenericEffectsImpl(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects,
     LinalgOp linalgOp) {
-  SmallVector<Value> inputOperands = linalgOp.getDpsInputs();
+  auto inputOperands = linalgOp.getDpsInputOperands();
   for (auto [index, operand] : llvm::enumerate(inputOperands)) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
+    if (!llvm::isa<MemRefType>(operand->get().getType()))
       continue;
-    if (linalgOp.payloadUsesValueFromOperand(&linalgOp->getOpOperand(index))) {
+    if (linalgOp.payloadUsesValueFromOperand(operand)) {
       effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
                            /*effectOnFullRegion=*/true,
                            SideEffects::DefaultResource::get());
@@ -154,16 +188,16 @@ static void getGenericEffectsImpl(
   }
   unsigned inputOperandSize = inputOperands.size();
 
-  for (auto [index, operand] : llvm::enumerate(linalgOp.getDpsInits())) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
+  for (int i = 0, e = linalgOp.getNumDpsInits(); i < e; ++i) {
+    OpOperand *operand = linalgOp.getDpsInitOperand(i);
+    if (!llvm::isa<MemRefType>(operand->get().getType()))
       continue;
-    if (linalgOp.payloadUsesValueFromOperand(
-            &linalgOp->getOpOperand(index + inputOperandSize))) {
+    if (linalgOp.payloadUsesValueFromOperand(operand)) {
       effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
                            /*effectOnFullRegion=*/true,
                            SideEffects::DefaultResource::get());
     }
-    effects.emplace_back(MemoryEffects::Write::get(), operand, /*stage=*/0,
+    effects.emplace_back(MemoryEffects::Write::get(), operand, /*stage=*/1,
                          /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
   }
@@ -366,8 +400,9 @@ static ParseResult parseDstStyleOp(
 // Helper functions for named Linalg ops defined in ods-gen from LinalgOps.cpp.
 //===----------------------------------------------------------------------===//
 
-using RegionBuilderFn = llvm::function_ref<void(ImplicitLocOpBuilder &, Block &,
-                                                ArrayRef<NamedAttribute>)>;
+using RegionBuilderFn = llvm::function_ref<void(
+    ImplicitLocOpBuilder &, Block &, ArrayRef<NamedAttribute>,
+    function_ref<InFlightDiagnostic()>)>;
 
 /// Fills the region of a structured operation using the provided
 /// `regionBuilder`. The method is used by both named structured ops created by
@@ -375,10 +410,12 @@ using RegionBuilderFn = llvm::function_ref<void(ImplicitLocOpBuilder &, Block &,
 /// parsers and creates a block with arguments corresponding to the elemental
 /// types of `inputTypes` and `outputTypes`. All output types are asserted to be
 /// ShapedType.
-static void fillStructuredOpRegion(OpBuilder &opBuilder, Region &region,
-                                   TypeRange inputTypes, TypeRange outputTypes,
-                                   ArrayRef<NamedAttribute> attrs,
-                                   RegionBuilderFn regionBuilder) {
+static void
+fillStructuredOpRegion(OpBuilder &opBuilder, Region &region,
+                       TypeRange inputTypes, TypeRange outputTypes,
+                       ArrayRef<NamedAttribute> attrs,
+                       RegionBuilderFn regionBuilder,
+                       function_ref<InFlightDiagnostic()> emitError) {
   SmallVector<Type, 8> argTypes;
   SmallVector<Location, 8> argLocs;
   for (auto containers : {inputTypes, outputTypes}) {
@@ -393,7 +430,7 @@ static void fillStructuredOpRegion(OpBuilder &opBuilder, Region &region,
       opBuilder.createBlock(&region, /*insertPt=*/{}, argTypes, argLocs);
   opBuilder.setInsertionPointToStart(body);
   ImplicitLocOpBuilder b(opBuilder.getUnknownLoc(), opBuilder);
-  regionBuilder(b, *body, attrs);
+  regionBuilder(b, *body, attrs, emitError);
 }
 
 /// Creates a structured operation given `inputs`, `outputs`, and `attributes`.
@@ -425,7 +462,8 @@ static void buildStructuredOp(OpBuilder &b, OperationState &state,
   // Create and fill the region of the structured operation.
   Region &region = *state.addRegion();
   fillStructuredOpRegion(b, region, TypeRange(inputs), TypeRange(outputs),
-                         state.attributes.getAttrs(), regionBuilder);
+                         state.attributes.getAttrs(), regionBuilder,
+                         [&]() { return mlir::emitError(state.location); });
 }
 
 //===----------------------------------------------------------------------===//
@@ -445,8 +483,9 @@ static ParseResult parseNamedStructuredOpRegion(
   }
 
   OpBuilder opBuilder(parser.getContext());
-  fillStructuredOpRegion(opBuilder, region, inputTypes, outputTypes, attrs,
-                         regionBuilder);
+  fillStructuredOpRegion(
+      opBuilder, region, inputTypes, outputTypes, attrs, regionBuilder,
+      [&]() { return parser.emitError(parser.getCurrentLocation()); });
   return success();
 }
 
@@ -492,13 +531,14 @@ static void printNamedStructuredOpResults(OpAsmPrinter &p,
 }
 
 static void printNamedStructuredOp(OpAsmPrinter &p, Operation *op,
-                                   ValueRange inputs, ValueRange outputs) {
-  p.printOptionalAttrDict(
-      op->getAttrs(),
-      /*elidedAttrs=*/{"operand_segment_sizes",
-                       // See generated code in
-                       // LinalgNamedStructuredOps.yamlgen.cpp.inc
-                       "linalg.memoized_indexing_maps"});
+                                   ValueRange inputs, ValueRange outputs,
+                                   ArrayRef<StringRef> elidedAttrs = {}) {
+  SmallVector<StringRef> allElidedAttrs(elidedAttrs.begin(), elidedAttrs.end());
+  allElidedAttrs.push_back("operand_segment_sizes");
+  // See generated code in LinalgNamedStructuredOps.yamlgen.cpp.inc
+  allElidedAttrs.push_back("linalg.memoized_indexing_maps");
+
+  p.printOptionalAttrDict(op->getAttrs(), allElidedAttrs);
 
   // Printing is shared with generic ops, except for the region and
   // attributes.
@@ -540,7 +580,8 @@ public:
       : builder(builder), block(block) {}
 
   // Build the unary functions defined by OpDSL.
-  Value buildUnaryFn(UnaryFn unaryFn, Value arg) {
+  Value buildUnaryFn(UnaryFn unaryFn, Value arg,
+                     function_ref<InFlightDiagnostic()> emitError) {
     if (!isFloatingPoint(arg))
       llvm_unreachable("unsupported non numeric type");
     OpBuilder::InsertionGuard g(builder);
@@ -581,7 +622,8 @@ public:
   }
 
   // Build the binary functions defined by OpDSL.
-  Value buildBinaryFn(BinaryFn binaryFn, Value arg0, Value arg1) {
+  Value buildBinaryFn(BinaryFn binaryFn, Value arg0, Value arg1,
+                      function_ref<InFlightDiagnostic()> emitError) {
     bool allComplex = isComplex(arg0) && isComplex(arg1);
     bool allFloatingPoint = isFloatingPoint(arg0) && isFloatingPoint(arg1);
     bool allInteger = isInteger(arg0) && isInteger(arg1);
@@ -656,8 +698,8 @@ public:
   }
 
   // Build the ternary functions defined by OpDSL.
-  Value buildTernaryFn(TernaryFn ternaryFn, Value arg0, Value arg1,
-                       Value arg2) {
+  Value buildTernaryFn(TernaryFn ternaryFn, Value arg0, Value arg1, Value arg2,
+                       function_ref<InFlightDiagnostic()> emitError) {
     bool headBool =
         isInteger(arg0) && arg0.getType().getIntOrFloatBitWidth() == 1;
     bool tailFloatingPoint =
@@ -675,7 +717,8 @@ public:
   }
 
   // Build the type functions defined by OpDSL.
-  Value buildTypeFn(TypeFn typeFn, Type toType, Value operand) {
+  Value buildTypeFn(TypeFn typeFn, Type toType, Value operand,
+                    function_ref<InFlightDiagnostic()> emitError) {
     switch (typeFn) {
     case TypeFn::cast_signed:
       return cast(toType, operand, false);
@@ -765,6 +808,17 @@ void LibdeviceCallOp::build(::mlir::OpBuilder &builder,
                             ArrayRef<NamedAttribute> attributes) {
   build(builder, result, inputs, init,
         StringAttr::get(builder.getContext(), symbol), attributes);
+}
+
+void LibdeviceCallOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
+}
+
+LogicalResult LibdeviceCallOp::fold(FoldAdaptor,
+                                   SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
 }
 
 LogicalResult LibdeviceCallOp::verify() { return success(); }
@@ -891,22 +945,26 @@ LogicalResult BatchConv2DNhwcFhwcOp::verifyIndexingMapRequiredAttributes() {
   return success();
 }
 
-void BatchConv2DNhwcFhwcOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                                          ArrayRef<NamedAttribute> attrs) {
+void BatchConv2DNhwcFhwcOp::regionBuilder(
+    ImplicitLocOpBuilder &b, Block &block, ArrayRef<NamedAttribute> attrs,
+    function_ref<InFlightDiagnostic()> emitError) {
   assert(3 > 0 && block.getNumArguments() == 3 &&
          "BatchConv2DNhwcFhwcOp regionBuilder expects 3 (>=0) args");
   RegionBuilderHelper helper(b, block);
   SmallVector<Value> yields;
 
-  Value value1 =
-      helper.buildTypeFn(TypeFn::cast_signed, block.getArgument(2).getType(),
-                         block.getArgument(0));
-  Value value2 =
-      helper.buildTypeFn(TypeFn::cast_signed, block.getArgument(2).getType(),
-                         block.getArgument(1));
-  Value value3 = helper.buildBinaryFn(BinaryFn::mul, value1, value2);
+  Value value1 = helper.buildTypeFn(
+      TypeFn::cast_signed, block.getArgument(2).getType(), block.getArgument(0),
+      [&]() { return mlir::emitError(b.getLoc()); });
+  Value value2 = helper.buildTypeFn(
+      TypeFn::cast_signed, block.getArgument(2).getType(), block.getArgument(1),
+      [&]() { return mlir::emitError(b.getLoc()); });
+  Value value3 = helper.buildBinaryFn(BinaryFn::mul, value1, value2, [&]() {
+    return mlir::emitError(b.getLoc());
+  });
   Value value4 =
-      helper.buildBinaryFn(BinaryFn::add, block.getArgument(2), value3);
+      helper.buildBinaryFn(BinaryFn::add, block.getArgument(2), value3,
+                           [&]() { return mlir::emitError(b.getLoc()); });
   yields.push_back(value4);
   helper.yieldOutputs(yields);
 }
@@ -977,18 +1035,22 @@ ArrayAttr MakeRangeOp::getIndexingMaps() {
 unsigned MakeRangeOp::getNumRegionArgs() { return 3; }
 
 void MakeRangeOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                                ArrayRef<NamedAttribute> attrs) {
+                                ArrayRef<NamedAttribute> attrs,
+                                function_ref<InFlightDiagnostic()> emitError) {
   assert(block.getNumArguments() == 3 &&
          "MakeRangeOp regionBuilder expects 3 (>=0) args");
   RegionBuilderHelper helper(b, block);
   SmallVector<Value> yields;
   Value zero = helper.index(0);
   Value value0 =
-      helper.buildTypeFn(TypeFn::cast_signed, helper.getIntegerType(32), zero);
+      helper.buildTypeFn(TypeFn::cast_signed, helper.getIntegerType(32), zero,
+                         [&]() { return mlir::emitError(b.getLoc()); });
   Value value1 =
-      helper.buildBinaryFn(BinaryFn::add, value0, block.getArgument(0));
-  Value value2 = helper.buildTypeFn(TypeFn::cast_signed,
-                                    block.getArgument(2).getType(), value1);
+      helper.buildBinaryFn(BinaryFn::add, value0, block.getArgument(0),
+                           [&]() { return mlir::emitError(b.getLoc()); });
+  Value value2 =
+      helper.buildTypeFn(TypeFn::cast_signed, block.getArgument(2).getType(),
+                         value1, [&]() { return mlir::emitError(b.getLoc()); });
   yields.push_back(value2);
   helper.yieldOutputs(yields);
 }
@@ -1031,8 +1093,8 @@ LogicalResult MakeRangeOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
 void MakeRangeOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, getOperation()->getResults(),
+                        getDpsInputOperands(), getDpsInitsMutable());
 }
 
 LogicalResult MakeRangeOp::verify() {
@@ -1153,15 +1215,16 @@ LogicalResult Im2ColOp::verifyIndexingMapRequiredAttributes() {
 }
 
 void Im2ColOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                             ArrayRef<NamedAttribute> attrs) {
+                             ArrayRef<NamedAttribute> attrs,
+                             function_ref<InFlightDiagnostic()> emitError) {
   assert(2 > 0 && block.getNumArguments() == 2 &&
          "Im2ColOp regionBuilder expects 2 (>=0) args");
   RegionBuilderHelper helper(b, block);
   SmallVector<Value> yields;
 
-  Value value1 =
-      helper.buildTypeFn(TypeFn::cast_signed, block.getArgument(1).getType(),
-                         block.getArgument(0));
+  Value value1 = helper.buildTypeFn(
+      TypeFn::cast_signed, block.getArgument(1).getType(), block.getArgument(0),
+      [&]() { return mlir::emitError(b.getLoc()); });
   yields.push_back(value1);
   helper.yieldOutputs(yields);
 }
@@ -1182,8 +1245,8 @@ LogicalResult Im2ColOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
 void Im2ColOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, getOperation()->getResults(),
+                        getDpsInputOperands(), getDpsInitsMutable());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1223,8 +1286,8 @@ LogicalResult TriOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
 void TriOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, getOperation()->getResults(),
+                        getDpsInputOperands(), getDpsInitsMutable());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1407,23 +1470,23 @@ void ScatterOp::getEffects(
     return;
 
   if (mask()) {
-    effects.emplace_back(MemoryEffects::Read::get(), mask(), /*stage=*/0,
-                         /*effectOnFullRegion=*/true,
-                         SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Read::get(), update(), /*stage=*/0,
-                         /*effectOnFullRegion=*/false,
-                         SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Read::get(), getDpsInputOperand(2), /*stage=*/0,
+        /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Read::get(), getDpsInputOperand(0), /*stage=*/0,
+        /*effectOnFullRegion=*/false, SideEffects::DefaultResource::get());
   } else {
-    effects.emplace_back(MemoryEffects::Read::get(), update(), /*stage=*/0,
-                         /*effectOnFullRegion=*/true,
-                         SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Read::get(), getDpsInputOperand(0), /*stage=*/0,
+        /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
   }
-  effects.emplace_back(MemoryEffects::Read::get(), indice(), /*stage=*/0,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), getInit(), /*stage=*/1,
-                       /*effectOnFullRegion=*/false,
-                       SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(1), /*stage=*/0,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Write::get(), getDpsInitOperand(0), /*stage=*/1,
+      /*effectOnFullRegion=*/false, SideEffects::DefaultResource::get());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1464,11 +1527,12 @@ void ScanOp::build(
 void ScanOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, getOperation()->getResults(),
+                        getDpsInputOperands(), getDpsInitsMutable());
 
-  for (auto operand : getDpsInits()) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
+  for (int i = 0, e = getNumDpsInits(); i < e; ++i) {
+    OpOperand *operand = getDpsInitOperand(i);
+    if (!llvm::isa<MemRefType>(operand->get().getType()))
       continue;
     effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
                          /*effectOnFullRegion=*/true,
@@ -1731,23 +1795,23 @@ void GatherOp::getEffects(
   if (!hasPureBufferSemantics())
     return;
 
-  effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
-                       /*effectOnFullRegion=*/false,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), indice(), /*stage=*/0,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(0), /*stage=*/0,
+      /*effectOnFullRegion=*/false, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(1), /*stage=*/0,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
   if (mask()) {
-    effects.emplace_back(MemoryEffects::Read::get(), mask(), /*stage=*/0,
-                         /*effectOnFullRegion=*/true,
-                         SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), getInit(), /*stage=*/1,
-                         /*effectOnFullRegion=*/false,
-                         SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Read::get(), getDpsInputOperand(2), /*stage=*/0,
+        /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Write::get(), getDpsInitOperand(0), /*stage=*/1,
+        /*effectOnFullRegion=*/false, SideEffects::DefaultResource::get());
   } else {
-    effects.emplace_back(MemoryEffects::Write::get(), getInit(), /*stage=*/1,
-                         /*effectOnFullRegion=*/true,
-                         SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Write::get(), getDpsInitOperand(0), /*stage=*/1,
+        /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
   }
 }
 
@@ -1785,25 +1849,27 @@ void AtomicRMWOp::getEffects(
   // FIXME: When atomic ops support memref input, we should remove the effects
   // of tensor.
   if (!hasPureBufferSemantics()) {
-    effects.emplace_back(MemoryEffects::Read::get(), src(),
+    effects.emplace_back(MemoryEffects::Read::get(), getDpsInitOperand(0),
+                         /*stage=*/0, /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), src(),
+    effects.emplace_back(MemoryEffects::Write::get(), getDpsInitOperand(0),
+                         /*stage=*/0, /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
     return;
   }
 
-  effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), src(), /*stage=*/0,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), src(), /*stage=*/1,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), dst(), /*stage=*/1,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(0), /*stage=*/0,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInitOperand(0), /*stage=*/0,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Write::get(), getDpsInitOperand(0), /*stage=*/1,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Write::get(), getDpsInitOperand(1), /*stage=*/1,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1848,51 +1914,55 @@ void GatherAtomicRMWOp::getEffects(
   // FIXME: When atomic ops support memref input, we should remove the effects
   // of tensor.
   if (!hasPureBufferSemantics()) {
-    effects.emplace_back(MemoryEffects::Read::get(), src(),
+    effects.emplace_back(MemoryEffects::Read::get(), getDpsInitOperand(0),
+                         /*stage=*/0, /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), src(),
+    effects.emplace_back(MemoryEffects::Write::get(), getDpsInitOperand(0),
+                         /*stage=*/0, /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
     return;
   }
 
-  effects.emplace_back(MemoryEffects::Read::get(), indice(), /*stage=*/0,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(1), /*stage=*/0,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
   if (mask()) {
-    effects.emplace_back(MemoryEffects::Read::get(), mask(), /*stage=*/0,
-                         /*effectOnFullRegion=*/true,
-                         SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
-                         /*effectOnFullRegion=*/false,
-                         SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Read::get(), src(), /*stage=*/0,
-                         /*effectOnFullRegion=*/false,
-                         SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), src(), /*stage=*/1,
-                         /*effectOnFullRegion=*/false,
-                         SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), window(), /*stage=*/1,
-                         /*effectOnFullRegion=*/false,
-                         SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Read::get(), getDpsInputOperand(2), /*stage=*/0,
+        /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Read::get(), getDpsInputOperand(0), /*stage=*/0,
+        /*effectOnFullRegion=*/false, SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Read::get(), getDpsInitOperand(0), /*stage=*/0,
+        /*effectOnFullRegion=*/false, SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Write::get(), getDpsInitOperand(0), /*stage=*/1,
+        /*effectOnFullRegion=*/false, SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Write::get(), getDpsInitOperand(1), /*stage=*/1,
+        /*effectOnFullRegion=*/false, SideEffects::DefaultResource::get());
   } else {
-    effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
-                         /*effectOnFullRegion=*/true,
-                         SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Read::get(), src(), /*stage=*/0,
-                         /*effectOnFullRegion=*/true,
-                         SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), src(), /*stage=*/1,
-                         /*effectOnFullRegion=*/true,
-                         SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), window(), /*stage=*/1,
-                         /*effectOnFullRegion=*/true,
-                         SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Read::get(), getDpsInputOperand(0), /*stage=*/0,
+        /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Read::get(), getDpsInitOperand(0), /*stage=*/0,
+        /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Write::get(), getDpsInitOperand(0), /*stage=*/1,
+        /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+    effects.emplace_back(
+        MemoryEffects::Write::get(), getDpsInitOperand(1), /*stage=*/1,
+        /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
   }
 }
 
 //===----------------------------------------------------------------------===//
 // Implementation of AtomicCASOp
 //===----------------------------------------------------------------------===//
+LogicalResult AtomicCASOp::verify() { return success(); }
+
 LogicalResult AtomicCASOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
   return memref::foldMemRefCast(*this);
 }
@@ -1903,33 +1973,37 @@ void AtomicCASOp::getEffects(
   // FIXME: When atomic ops support memref input, we should remove the effects
   // of tensor.
   if (!hasPureBufferSemantics()) {
-    effects.emplace_back(MemoryEffects::Read::get(), input(),
+    effects.emplace_back(MemoryEffects::Read::get(), getDpsInputOperand(0),
+                         /*stage=*/0, /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), input(),
+    effects.emplace_back(MemoryEffects::Write::get(), getDpsInputOperand(0),
+                         /*stage=*/0, /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
     return;
   }
 
-  effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), input(), /*stage=*/1,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), cmp(), /*stage=*/0,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), val(), /*stage=*/0,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), getInit(), /*stage=*/1,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(0), /*stage=*/0,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Write::get(), getDpsInputOperand(0), /*stage=*/1,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(1), /*stage=*/0,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(2), /*stage=*/0,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Write::get(), getDpsInitOperand(0), /*stage=*/1,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
 }
 
 //===----------------------------------------------------------------------===//
 // Implementation of GatherAtomicCASOp
 //===----------------------------------------------------------------------===//
+LogicalResult GatherAtomicCASOp::verify() { return success(); }
+
 LogicalResult GatherAtomicCASOp::fold(FoldAdaptor,
                                       SmallVectorImpl<OpFoldResult> &) {
   return memref::foldMemRefCast(*this);
@@ -1941,31 +2015,33 @@ void GatherAtomicCASOp::getEffects(
   // FIXME: When atomic ops support memref input, we should remove the effects
   // of tensor.
   if (!hasPureBufferSemantics()) {
-    effects.emplace_back(MemoryEffects::Read::get(), input(),
+    effects.emplace_back(MemoryEffects::Read::get(), getDpsInputOperand(0),
+                         /*stage=*/0, /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), input(),
+    effects.emplace_back(MemoryEffects::Write::get(), getDpsInputOperand(0),
+                         /*stage=*/0, /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
     return;
   }
 
-  effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
-                       /*effectOnFullRegion=*/false,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), input(), /*stage=*/1,
-                       /*effectOnFullRegion=*/false,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), cmp(), /*stage=*/0,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), val(), /*stage=*/0,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), indice(), /*stage=*/0,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), getInit(), /*stage=*/1,
-                       /*effectOnFullRegion=*/true,
-                       SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(0), /*stage=*/0,
+      /*effectOnFullRegion=*/false, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Write::get(), getDpsInputOperand(0), /*stage=*/1,
+      /*effectOnFullRegion=*/false, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(1), /*stage=*/0,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(2), /*stage=*/0,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Read::get(), getDpsInputOperand(3), /*stage=*/0,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  effects.emplace_back(
+      MemoryEffects::Write::get(), getDpsInitOperand(0), /*stage=*/1,
+      /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
 }
 
 //===----------------------------------------------------------------------===//
@@ -2157,7 +2233,8 @@ void ArgMaxOp::build(
 }
 
 void ArgMaxOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                             ArrayRef<NamedAttribute> attrs) {
+                             ArrayRef<NamedAttribute> attrs,
+                             function_ref<InFlightDiagnostic()> emitError) {
   RegionBuilderHelper helper(b, block);
   assert(block.getNumArguments() == 4 &&
          "ArgMaxOp regionBuilder expects 4 (>=0) args");
@@ -2208,7 +2285,8 @@ void ArgMinOp::build(
 }
 
 void ArgMinOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                             ArrayRef<NamedAttribute> attrs) {
+                             ArrayRef<NamedAttribute> attrs,
+                             function_ref<InFlightDiagnostic()> emitError) {
   RegionBuilderHelper helper(b, block);
   assert(block.getNumArguments() == 4 &&
          "ArgMinOp regionBuilder expects 4 (>=0) args");
@@ -2259,7 +2337,8 @@ void ReduceSumOp::build(
 }
 
 void ReduceSumOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                                ArrayRef<NamedAttribute> attrs) {
+                                ArrayRef<NamedAttribute> attrs,
+                                function_ref<InFlightDiagnostic()> emitError) {
   RegionBuilderHelper helper(b, block);
   assert(block.getNumArguments() == 2 &&
          "ReduceSumOp regionBuilder expects 2 (>=0) args");
@@ -2290,7 +2369,8 @@ void ReduceMaxOp::build(
 }
 
 void ReduceMaxOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                                ArrayRef<NamedAttribute> attrs) {
+                                ArrayRef<NamedAttribute> attrs,
+                                function_ref<InFlightDiagnostic()> emitError) {
   RegionBuilderHelper helper(b, block);
   assert(block.getNumArguments() == 2 &&
          "ReduceMaxOp regionBuilder expects 2 (>=0) args");
@@ -2322,7 +2402,8 @@ void ReduceMinOp::build(
 }
 
 void ReduceMinOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                                ArrayRef<NamedAttribute> attrs) {
+                                ArrayRef<NamedAttribute> attrs,
+                                function_ref<InFlightDiagnostic()> emitError) {
   RegionBuilderHelper helper(b, block);
   assert(block.getNumArguments() == 2 &&
          "ReduceMinOp regionBuilder expects 2 (>=0) args");
@@ -2353,8 +2434,9 @@ void ReduceMaxNanOp::build(
                                              dimensions, bodyBuild, attributes);
 }
 
-void ReduceMaxNanOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                                   ArrayRef<NamedAttribute> attrs) {
+void ReduceMaxNanOp::regionBuilder(
+    ImplicitLocOpBuilder &b, Block &block, ArrayRef<NamedAttribute> attrs,
+    function_ref<InFlightDiagnostic()> emitError) {
   RegionBuilderHelper helper(b, block);
   assert(block.getNumArguments() == 2 &&
          "ReduceMaxNanOp regionBuilder expects 2 (>=0) args");
@@ -2380,8 +2462,9 @@ void ReduceMinNanOp::build(
                                              dimensions, bodyBuild, attributes);
 }
 
-void ReduceMinNanOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                                   ArrayRef<NamedAttribute> attrs) {
+void ReduceMinNanOp::regionBuilder(
+    ImplicitLocOpBuilder &b, Block &block, ArrayRef<NamedAttribute> attrs,
+    function_ref<InFlightDiagnostic()> emitError) {
   RegionBuilderHelper helper(b, block);
   assert(block.getNumArguments() == 2 &&
          "ReduceMinNanOp regionBuilder expects 2 (>=0) args");
@@ -2571,7 +2654,7 @@ struct FoldOrthogonalPaddings : public OpRewritePattern<PadOp> {
                 loc, intAttr.getValue().getSExtValue());
           }
         } else {
-          lowValue = lowV.get<Value>();
+          lowValue = mlir::cast<Value>(lowV);
         }
         auto highV = newHighPad[i];
         Value highValue;
@@ -2581,7 +2664,7 @@ struct FoldOrthogonalPaddings : public OpRewritePattern<PadOp> {
                 loc, intAttr.getValue().getSExtValue());
           }
         } else {
-          highValue = highV.get<Value>();
+          highValue = mlir::cast<Value>(highV);
         }
         Value dstDim = rewriter.create<arith::AddIOp>(loc, srcDim, lowValue);
         dstDim = rewriter.create<arith::AddIOp>(loc, dstDim, highValue);
@@ -2793,8 +2876,8 @@ LogicalResult PadOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
 void PadOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, getOperation()->getResults(),
+                        getDpsInputOperands(), getDpsInitsMutable());
 }
 
 LogicalResult PadOp::verify() {
@@ -2850,6 +2933,12 @@ LogicalResult PadOp::verify() {
 //===----------------------------------------------------------------------===//
 // Implementation of AssertOp
 //===----------------------------------------------------------------------===//
+LogicalResult AssertOp::verify() { return success(); }
+
+LogicalResult AssertOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
+}
+
 void AssertOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
@@ -2857,8 +2946,8 @@ void AssertOp::getEffects(
                        /*effectOnFullRegion=*/false,
                        SideEffects::DefaultResource::get());
 
-  for (auto operand : getDpsInputs()) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
+  for (auto *operand : getDpsInputOperands()) {
+    if (!llvm::isa<MemRefType>(operand->get().getType()))
       continue;
     effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
                          /*effectOnFullRegion=*/false,
@@ -2877,8 +2966,8 @@ LogicalResult HistogramOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
 void HistogramOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, getOperation()->getResults(),
+                        getDpsInputOperands(), getDpsInitsMutable());
 }
 
 LogicalResult HistogramOp::verify() {
@@ -2926,8 +3015,8 @@ LogicalResult FlipOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
 void FlipOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, getOperation()->getResults(),
+                        getDpsInputOperands(), getDpsInitsMutable());
 }
 
 LogicalResult FlipOp::verify() {

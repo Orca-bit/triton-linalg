@@ -956,8 +956,8 @@ class CanonicalizeTtTensorPtrConstancyDegerationPattern
       for (int64_t dim : coalescedDims) {
         if (llvm::any_of(boundaryCheck.value(),
                          [&dim](int32_t bc) { return dim == bc; })) {
-          blockPtrStrides[dim] = rewriter.create<arith::ConstantIntOp>(
-              loc, 1, rewriter.getI64Type());
+          blockPtrStrides[dim] = rewriter.create<arith::ConstantOp>(
+              loc, rewriter.getIntegerAttr(rewriter.getI64Type(), 1));
         }
       }
     }
@@ -1195,16 +1195,15 @@ public:
   LogicalResult matchAndRewrite(triton::AssertOp op,
                                 PatternRewriter &rewriter) const override {
     auto condVal = op.getCondition();
-    auto valType = condVal.getType();
-    auto rank = valType.getRank();
+    auto valType = cast<ShapedType>(condVal.getType());
+    auto rank = cast<ShapedType>(valType).getRank();
     auto assertMessage =
-        llvm::formatv("{0}:{1}: {2} Assertion `{3}` failed", op.getFile(),
-                      op.getLine(), op.getFunc(), op.getMessage());
+        llvm::formatv("{0}: Assertion `{1}` failed", op.getLoc(), op.getMessage());
     assert(isa<mlir::IntegerType>(valType.getElementType()) &&
            "Only support int tensor for assert");
     // If the AssertOp input shape dimension is 1 or 0 dimension and the 0th
     // dimension is 1, it is converted to ScalarAssertOp.
-    if ((rank != 1 && rank != 0) || (rank > 0 && valType.getShape()[0] != 1)) {
+    if ((rank != 1 && rank != 0) || (rank > 0 && cast<ShapedType>(valType).getShape()[0] != 1)) {
       return failure();
     }
     auto rankType = cast<RankedTensorType>(valType);
@@ -1265,7 +1264,7 @@ struct CanonicalizeTritonPass
         CanonicalizeTtTensorPtrDimDegerationPattern<triton::LoadOp>,
         CanonicalizeTtTensorPtrDimDegerationPattern<triton::StoreOp>>(&ctx);
 
-    if (failed(applyPatternsAndFoldGreedily(getOperation(),
+    if (failed(applyPatternsGreedily(getOperation(),
                                             std::move(patterns)))) {
       signalPassFailure();
     }

@@ -63,18 +63,15 @@ def ScatterOp : LinalgExtBase_Op<"scatter", []> {
     loop will be marked as reduction and can not be tiled.
   }];
 
-    let arguments = (ins
-      Variadic<TensorOrMemref>:$inputs,
-      TensorOrMemref:$init,
+  let arguments = (ins Variadic<TensorOrMemref>:$inputs, TensorOrMemref:$init,
       DenseI64ArrayAttr:$dimension_map,
       DefaultValuedAttr<BoolAttr, "true">:$ranged_data,
       DefaultValuedAttr<BoolAttr, "true">:$overlap_window,
-      DefaultValuedAttr<BoolAttr, "true">:$signed_indice
-    );
-    let results = (outs Variadic<AnyTensor>:$result);
-    let regions = (region SizedRegion<1>:$region);
+      DefaultValuedAttr<BoolAttr, "true">:$signed_indice);
+  let results = (outs Variadic<AnyTensor>:$result);
+  let regions = (region SizedRegion<1>:$region);
 
-    let assemblyFormat = [{
+  let assemblyFormat = [{
       attr-dict `dimension_map` `=` $dimension_map
                 `ranged_data` `(` $ranged_data `)`
                 `overlap_window` `(` $overlap_window `)`
@@ -83,16 +80,14 @@ def ScatterOp : LinalgExtBase_Op<"scatter", []> {
       `outs` `(` $init `:` type($init) `)`
       $region (`->` type($result)^)?
     }];
-    let hasFolder = 1;
-    let builders = [
-      OpBuilder<(ins "ValueRange":$inputs, "Value":$init,
-        "ArrayRef<int64_t>": $dimensionMap, "bool":$rangedData,
-        "bool":$overlapWindow,
-        "bool":$signed_indice,
-        CArg<"function_ref<void(OpBuilder &, Location, ValueRange)>", "{}">:$region,
-        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
-    ];
-    let extraClassDeclaration = [{
+  let hasFolder = 1;
+  let builders = [OpBuilder<(ins "ValueRange":$inputs, "Value":$init,
+      "ArrayRef<int64_t>":$dimensionMap, "bool":$rangedData,
+      "bool":$overlapWindow, "bool":$signed_indice,
+      CArg<"function_ref<void(OpBuilder &, Location, ValueRange)>",
+           "{}">:$region,
+      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>];
+  let extraClassDeclaration = [{
       // base helper function
       Value update() {
         return getDpsInputOperand(0)->get();
@@ -181,17 +176,14 @@ def GatherOp : LinalgExtBase_Op<"gather", []> {
     with iteration loops marked as parallel.
   }];
 
-    let arguments = (ins
-      Variadic<TensorOrMemref>:$inputs,
-      TensorOrMemref:$init,
+  let arguments = (ins Variadic<TensorOrMemref>:$inputs, TensorOrMemref:$init,
       DenseI64ArrayAttr:$dimension_map,
       DefaultValuedAttr<BoolAttr, "true">:$ranged_data,
-      DefaultValuedAttr<BoolAttr, "true">:$signed_indice
-    );
-    let results = (outs Variadic<AnyTensor>:$result);
-    let regions = (region SizedRegion<1>:$region);
+      DefaultValuedAttr<BoolAttr, "true">:$signed_indice);
+  let results = (outs Variadic<AnyTensor>:$result);
+  let regions = (region SizedRegion<1>:$region);
 
-    let assemblyFormat = [{
+  let assemblyFormat = [{
       attr-dict `dimension_map` `=` $dimension_map
                 `ranged_data` `(` $ranged_data `)`
                 `signed_indice` `(` $signed_indice `)`
@@ -199,15 +191,14 @@ def GatherOp : LinalgExtBase_Op<"gather", []> {
       `outs` `(` $init `:` type($init) `)`
       $region (`->` type($result)^)?
     }];
-    let hasFolder = 1;
-    let builders = [
-      OpBuilder<(ins "ValueRange":$inputs, "Value":$init,
-        "ArrayRef<int64_t>": $dimensionMap,
-        "bool":$rangedData, "bool":$signed_indice,
-        CArg<"function_ref<void(OpBuilder &, Location, ValueRange)>", "{}">:$region,
-        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
-    ];
-    let extraClassDeclaration = [{
+  let hasFolder = 1;
+  let builders = [OpBuilder<(ins "ValueRange":$inputs, "Value":$init,
+      "ArrayRef<int64_t>":$dimensionMap, "bool":$rangedData,
+      "bool":$signed_indice,
+      CArg<"function_ref<void(OpBuilder &, Location, ValueRange)>",
+           "{}">:$region,
+      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>];
+  let extraClassDeclaration = [{
       // base helper function
       Value input() {
         return getDpsInputOperand(0)->get();
@@ -255,7 +246,9 @@ def GatherOp : LinalgExtBase_Op<"gather", []> {
 //===----------------------------------------------------------------------===//
 // Op definition for contiguous AtomicRMWOp
 //===----------------------------------------------------------------------===//
-def AtomicRMWOp : LinalgExtBase_Op<"atomic_rmw", [AttrSizedOperandSegments, SameOperandsElementType, SameOperandsShape]> {
+def AtomicRMWOp : LinalgExtBase_Op<"atomic_rmw", [AttrSizedOperandSegments,
+                                                  SameOperandsElementType,
+                                                  SameOperandsShape]> {
   let summary = [{ AtomicRMW computation operation. }];
   let description = [{
     AtomicRMW has one input, which is the rhs to perform the modification.
@@ -273,28 +266,22 @@ def AtomicRMWOp : LinalgExtBase_Op<"atomic_rmw", [AttrSizedOperandSegments, Same
     ```
   }];
 
-    let arguments = (ins
-      Variadic<TensorOrMemref>:$inputs,
-      Variadic<TensorOrMemref>:$inits,
-      LinalgExt_AtomicTypeAttr:$atomic_type,
-      LinalgExt_MemoryOrder:$memory_order
-    );
-    let results = (outs Variadic<TensorOrMemref>:$result);
+  let arguments = (ins Variadic<TensorOrMemref>:$inputs,
+      Variadic<TensorOrMemref>:$inits, LinalgExt_AtomicTypeAttr:$atomic_type,
+      LinalgExt_MemoryOrder:$memory_order);
+  let results = (outs Variadic<TensorOrMemref>:$result);
 
-    let assemblyFormat = [{
+  let assemblyFormat = [{
       $atomic_type $memory_order attr-dict
       (`ins` `(` $inputs^ `:` type($inputs) `)`)?
       `outs` `(` $inits `:` type($inits) `)`
        (`->` type($result)^)?
     }];
-    let hasFolder = 1;
-    let builders = [
-      OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
-        "AtomicType": $atomic_type, "MemoryOrder": $memory_order,
-        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
-    ];
-    let extraClassDeclaration =
-      extraLinalgExtOpClassDeclaration # [{
+  let hasFolder = 1;
+  let builders = [OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
+      "AtomicType":$atomic_type, "MemoryOrder":$memory_order,
+      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>];
+  let extraClassDeclaration = extraLinalgExtOpClassDeclaration#[{
       // Base helper function.
       Value input() {
         return getDpsInputOperand(0)->get();
@@ -322,7 +309,8 @@ def AtomicRMWOp : LinalgExtBase_Op<"atomic_rmw", [AttrSizedOperandSegments, Same
 //===----------------------------------------------------------------------===//
 // Op definition for GatherAtomicRMWOp
 //===----------------------------------------------------------------------===//
-def GatherAtomicRMWOp : LinalgExtBase_Op<"gather_atomic_rmw", [AttrSizedOperandSegments]> {
+def GatherAtomicRMWOp
+    : LinalgExtBase_Op<"gather_atomic_rmw", [AttrSizedOperandSegments]> {
   let summary = [{ GatherAtomicRMW computation operation. }];
   let description = [{
     GatherAtomicRMW has two or three inputs: input, indice, mask.
@@ -346,28 +334,22 @@ def GatherAtomicRMWOp : LinalgExtBase_Op<"gather_atomic_rmw", [AttrSizedOperandS
     ```
   }];
 
-    let arguments = (ins
-      Variadic<TensorOrMemref>:$inputs,
-      Variadic<TensorOrMemref>:$inits,
-      LinalgExt_AtomicTypeAttr:$atomic_type,
-      LinalgExt_MemoryOrder:$memory_order
-    );
-    let results = (outs Variadic<TensorOrMemref>:$result);
+  let arguments = (ins Variadic<TensorOrMemref>:$inputs,
+      Variadic<TensorOrMemref>:$inits, LinalgExt_AtomicTypeAttr:$atomic_type,
+      LinalgExt_MemoryOrder:$memory_order);
+  let results = (outs Variadic<TensorOrMemref>:$result);
 
-    let assemblyFormat = [{
+  let assemblyFormat = [{
       $atomic_type $memory_order attr-dict
       (`ins` `(` $inputs^ `:` type($inputs) `)`)?
       `outs` `(` $inits `:` type($inits) `)`
        (`->` type($result)^)?
     }];
-    let hasFolder = 1;
-    let builders = [
-      OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
-        "AtomicType": $atomic_type, "MemoryOrder": $memory_order,
-        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
-    ];
-    let extraClassDeclaration =
-      extraLinalgExtOpClassDeclaration # [{
+  let hasFolder = 1;
+  let builders = [OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
+      "AtomicType":$atomic_type, "MemoryOrder":$memory_order,
+      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>];
+  let extraClassDeclaration = extraLinalgExtOpClassDeclaration#[{
       // Base helper function.
       Value input() {
         return getDpsInputOperand(0)->get();
@@ -416,11 +398,7 @@ def GatherAtomicRMWOp : LinalgExtBase_Op<"gather_atomic_rmw", [AttrSizedOperandS
 //===----------------------------------------------------------------------===//
 // Op definition for AtomicCAS
 //===----------------------------------------------------------------------===//
-def AtomicCASOp : Op<LinalgExt_Dialect, "atomic_cas", [
-                     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                     DestinationStyleOpInterface,
-                     LinalgExtInterface,
-                     ReifyRankedShapedTypeOpInterface]> {
+def AtomicCASOp : LinalgExtBase_Op<"atomic_cas", []> {
   let summary = [{ LinalgExt atomic CAS operation for continuous buffer. }];
   let description = [{
     AtomicCASOp has three inputs: ``input``, ``cmp`` and ``val``.
@@ -433,11 +411,8 @@ def AtomicCASOp : Op<LinalgExt_Dialect, "atomic_cas", [
     ``input``, else keeps the value of ``input``.
   }];
 
-  let arguments = (ins
-    Variadic<TensorOrMemref>:$inputs,
-    TensorOrMemref:$init,
-    LinalgExt_MemoryOrder:$memory_order
-  );
+  let arguments = (ins Variadic<TensorOrMemref>:$inputs, TensorOrMemref:$init,
+      LinalgExt_MemoryOrder:$memory_order);
 
   let results = (outs Variadic<TensorOrMemref>:$results);
 
@@ -489,11 +464,7 @@ def AtomicCASOp : Op<LinalgExt_Dialect, "atomic_cas", [
 //===----------------------------------------------------------------------===//
 // Op definition for GatherAtomicCAS
 //===----------------------------------------------------------------------===//
-def GatherAtomicCASOp : Op<LinalgExt_Dialect, "gather_atomic_cas", [
-                           DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                           DestinationStyleOpInterface,
-                           LinalgExtInterface,
-                           ReifyRankedShapedTypeOpInterface]> {
+def GatherAtomicCASOp : LinalgExtBase_Op<"gather_atomic_cas", []> {
   let summary = [{ LinalgExt atomic CAS operation for discrete buffer. }];
   let description = [{
     GatherAtomicCASOp has four inputs: ``input``, ``cmp``, ``val`` and ``indice``.
@@ -509,11 +480,8 @@ def GatherAtomicCASOp : Op<LinalgExt_Dialect, "gather_atomic_cas", [
     ``indice`` like ``GatherOp`` to deal with this situation.
   }];
 
-  let arguments = (ins
-    Variadic<TensorOrMemref>:$inputs,
-    TensorOrMemref:$init,
-    LinalgExt_MemoryOrder:$memory_order
-  );
+  let arguments = (ins Variadic<TensorOrMemref>:$inputs, TensorOrMemref:$init,
+      LinalgExt_MemoryOrder:$memory_order);
 
   let results = (outs Variadic<TensorOrMemref>:$results);
 
@@ -573,7 +541,8 @@ def GatherAtomicCASOp : Op<LinalgExt_Dialect, "gather_atomic_cas", [
   }];
 }
 
-def ExtYieldOp : LinalgExt_PureOp<"yield", [NoMemoryEffect, ReturnLike, Terminator]> {
+def ExtYieldOp
+    : LinalgExt_PureOp<"yield", [NoMemoryEffect, ReturnLike, Terminator]> {
   let summary = "LinalgExt yield op";
   let description = [{
     `linalg_ext.yield` is a special terminator operation for blocks inside
@@ -582,9 +551,7 @@ def ExtYieldOp : LinalgExt_PureOp<"yield", [NoMemoryEffect, ReturnLike, Terminat
 
   let arguments = (ins Variadic<AnyType>:$operands);
 
-  let builders = [
-    OpBuilder<(ins), [{ /* nothing to do */ }]>,
-  ];
+  let builders = [OpBuilder<(ins), [{ /* nothing to do */ }]>, ];
 
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
 }
@@ -630,15 +597,9 @@ def PadOp : LinalgExtBase_Op<"pad", [AttrSizedOperandSegments]> {
         high = [1, 2] {} -> tensor<6x?xf32>
     ```
   }];
-  let arguments = (ins
-      TensorOrMemref:$input,
-      TensorOrMemref:$init,
-      AnyType:$pvalue,
-      Variadic<Index>:$low,
-      Variadic<Index>:$high,
-      DenseI64ArrayAttr:$static_low,
-      DenseI64ArrayAttr:$static_high
-  );
+  let arguments = (ins TensorOrMemref:$input, TensorOrMemref:$init,
+      AnyType:$pvalue, Variadic<Index>:$low, Variadic<Index>:$high,
+      DenseI64ArrayAttr:$static_low, DenseI64ArrayAttr:$static_high);
   let results = (outs Variadic<AnyTensor>:$result);
   let regions = (region SizedRegion<1>:$region);
   let assemblyFormat = [{attr-dict
@@ -652,24 +613,17 @@ def PadOp : LinalgExtBase_Op<"pad", [AttrSizedOperandSegments]> {
   let hasFolder = 1;
   let hasCanonicalizer = 1;
   let skipDefaultBuilders = 1;
-  let builders = [
-    OpBuilder<(ins "Value":$input, "Value":$init,
-      "Value":$pvalue,
-      "ArrayRef<OpFoldResult>":$low,
-      "ArrayRef<OpFoldResult>":$high,
-      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>,
-    OpBuilder<(ins "Value":$input, "Value":$init,
-      "Value":$pvalue,
-      "ArrayRef<int64_t>":$low,
-      "ArrayRef<int64_t>":$high,
-      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>,
-    OpBuilder<(ins "Value":$input, "Value":$init,
-      "Value":$pvalue,
-      "ValueRange":$low,
-      "ValueRange":$high,
-      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
-  ];
-  let extraClassDeclaration = extraLinalgExtOpClassDeclaration # [{
+  let builders = [OpBuilder<(ins "Value":$input, "Value":$init, "Value":$pvalue,
+                      "ArrayRef<OpFoldResult>":$low,
+                      "ArrayRef<OpFoldResult>":$high,
+                      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>,
+                  OpBuilder<(ins "Value":$input, "Value":$init, "Value":$pvalue,
+                      "ArrayRef<int64_t>":$low, "ArrayRef<int64_t>":$high,
+                      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>,
+                  OpBuilder<(ins "Value":$input, "Value":$init, "Value":$pvalue,
+                      "ValueRange":$low, "ValueRange":$high,
+                      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>];
+  let extraClassDeclaration = extraLinalgExtOpClassDeclaration#[{
     Value input() {
       return getDpsInputOperand(0)->get();
     }
@@ -743,21 +697,14 @@ def PadOp : LinalgExtBase_Op<"pad", [AttrSizedOperandSegments]> {
 //===----------------------------------------------------------------------===//
 // Op definition for AssertOp
 //===----------------------------------------------------------------------===//
-def AssertOp : Op<LinalgExt_Dialect, "assert", [
-                  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                  DestinationStyleOpInterface,
-                  LinalgExtInterface,
-                  ReifyRankedShapedTypeOpInterface]> {
+def AssertOp : LinalgExtBase_Op<"assert", []> {
   let summary = "lianlg assert operation";
   let description = [{
     `linalg_ext.assert` takes a condition tensor, a message string.
     If the condition is false, the message is printed, and the program is aborted.
   }];
 
-  let arguments = (ins
-    TensorOrMemref:$condition,
-    StrAttr:$msg
-  );
+  let arguments = (ins TensorOrMemref:$condition, StrAttr:$msg);
   let results = (outs Variadic<AnyTensor>:$results);
 
   let assemblyFormat = [{
@@ -766,7 +713,7 @@ def AssertOp : Op<LinalgExt_Dialect, "assert", [
 
   }];
 
-  let extraClassDeclaration =  [{
+  let extraClassDeclaration = [{
 
     ShapedType getInitType() {
       return mlir::cast<ShapedType>(getCondition().getType());
@@ -791,17 +738,15 @@ def AssertOp : Op<LinalgExt_Dialect, "assert", [
 //===----------------------------------------------------------------------===//
 // Op definition for ScalarAssertOp
 //===----------------------------------------------------------------------===//
-def ScalarAssertOp : Op<LinalgExt_Dialect, "scalar_assert", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+def ScalarAssertOp : Op<LinalgExt_Dialect, "scalar_assert",
+                        [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "linalg scalar assert operation";
   let description = [{
     `linalg_ext.scalar_assert` takes a condition scalar, a message string.
     If the condition is false, the message is printed, and the program is aborted.
   }];
 
-  let arguments = (ins
-    I1:$condition,
-    StrAttr:$msg
-  );
+  let arguments = (ins I1:$condition, StrAttr:$msg);
 
   let assemblyFormat = [{
     attr-dict `ins` `(` $condition `:` type($condition) `)`
@@ -811,13 +756,16 @@ def ScalarAssertOp : Op<LinalgExt_Dialect, "scalar_assert", [DeclareOpInterfaceM
 //===----------------------------------------------------------------------===//
 // Scan Op.
 //===----------------------------------------------------------------------===//
-def ScanOp : LinalgExtBase_Op<"scan", [
-    DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
-    DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames"]>,
-    SingleBlockImplicitTerminator<"::mlir::triton::linalg_ext::ExtYieldOp">,
-    AttrSizedOperandSegments]> {
+def ScanOp : LinalgExtBase_Op<
+                 "scan", [DeclareOpInterfaceMethods<
+                              OpAsmOpInterface, ["getAsmResultNames"]>,
+                          DeclareOpInterfaceMethods<
+                              OpAsmOpInterface, ["getAsmBlockArgumentNames"]>,
+                          SingleBlockImplicitTerminator<
+                              "::mlir::triton::linalg_ext::ExtYieldOp">,
+                          AttrSizedOperandSegments]> {
   let summary = "Scan Operations";
- let description = [{
+  let description = [{
     Applies the `combiner` to each elements with
     a carry in `inputs` along the provided `dimensions`
     and update the carry.
@@ -840,26 +788,23 @@ def ScanOp : LinalgExtBase_Op<"scan", [
     ```
   }];
   let arguments = (ins
-    // Input arg
-    Variadic<TensorOrMemref>:$inputs,
-    // Output arg and init arg
-    Variadic<TensorOrMemref>:$inits,
-    // Dimension arg
-    DenseI64ArrayAttr:$dimensions,
-    // Reverse arg
-    BoolAttr:$reverse,
-    // Inclusive arg
-    BoolAttr:$inclusive
-  );
+      // Input arg
+      Variadic<TensorOrMemref>:$inputs,
+      // Output arg and init arg
+      Variadic<TensorOrMemref>:$inits,
+      // Dimension arg
+      DenseI64ArrayAttr:$dimensions,
+      // Reverse arg
+      BoolAttr:$reverse,
+      // Inclusive arg
+      BoolAttr:$inclusive);
   let results = (outs Variadic<TensorOrMemref>:$results);
   let regions = (region SizedRegion<1>:$combiner);
 
-  let builders = [
-    OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
+  let builders = [OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
       "ArrayRef<int64_t>":$dimensions, "bool":$reverse, "bool":$inclusive,
       "function_ref<void(OpBuilder &, Location, ValueRange)>",
-      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
-  ];
+      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>];
 
   let assemblyFormat = [{
     attr-dict
@@ -871,7 +816,7 @@ def ScanOp : LinalgExtBase_Op<"scan", [
     $combiner (`->` type($results)^)?
   }];
 
-  let extraClassDeclaration = extraLinalgExtOpClassDeclaration # [{
+  let extraClassDeclaration = extraLinalgExtOpClassDeclaration#[{
 
     Block::BlockArgListType getRegionInputArgs() {
       return getBlock()->getArguments().take_front(
@@ -981,21 +926,12 @@ def TriOp : LinalgExtBase_Op<"tri", []> {
 
   }];
 
-  let arguments = (ins
-    TensorOrMemref:$init,
-    AnyType:$top,
-    AnyType:$bottom,
-    Index:$k
-  );
+  let arguments = (ins TensorOrMemref:$init, AnyType:$top, AnyType:$bottom,
+      Index:$k);
   let results = (outs Variadic<AnyTensor>:$result);
 
-  let builders = [
-    OpBuilder<(ins "Value":$init,
-      "Value":$top,
-      "Value":$bottom,
-      "Value":$k,
-      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
-  ];
+  let builders = [OpBuilder<(ins "Value":$init, "Value":$top, "Value":$bottom,
+      "Value":$k, CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>];
 
   let assemblyFormat = [{attr-dict
       `outs` `(` $init `:` type($init) `)`
@@ -1005,7 +941,7 @@ def TriOp : LinalgExtBase_Op<"tri", []> {
     }];
   let hasFolder = 1;
 
-  let extraClassDeclaration = extraLinalgExtOpClassDeclaration # [{
+  let extraClassDeclaration = extraLinalgExtOpClassDeclaration#[{
     ShapedType getInitType() {
       return mlir::cast<ShapedType>(getInit().getType());
     }
@@ -1021,10 +957,7 @@ def TriOp : LinalgExtBase_Op<"tri", []> {
 //===----------------------------------------------------------------------===//
 // LibdeviceCall op.
 //===----------------------------------------------------------------------===//
-def LibdeviceCallOp : Op<LinalgExt_Dialect, "libdevice_call", [
-                         DestinationStyleOpInterface,
-                         LinalgExtInterface,
-                         ReifyRankedShapedTypeOpInterface]> {
+def LibdeviceCallOp : LinalgExtBase_Op<"libdevice_call", []> {
   let summary = "linalg libdevice_call operation";
   let description = [{
     LibdeviceCallOp is used to undertake operators that need to call operators from the libdevice library.
@@ -1040,13 +973,12 @@ def LibdeviceCallOp : Op<LinalgExt_Dialect, "libdevice_call", [
   }];
 
   let arguments = (ins
-    // Input args
-    Variadic<AnyType>:$inputs,
-    // Output arg
-    TensorOrMemref:$init,
-    // function name
-    StrAttr:$symbol
-  );
+      // Input args
+      Variadic<AnyType>:$inputs,
+      // Output arg
+      TensorOrMemref:$init,
+      // function name
+      StrAttr:$symbol);
 
   let results = (outs Variadic<TensorOrMemref>:$results);
   let assemblyFormat = [{
@@ -1057,13 +989,11 @@ def LibdeviceCallOp : Op<LinalgExt_Dialect, "libdevice_call", [
        (`->` type($results)^)?
     }];
 
-  let builders = [
-    OpBuilder<(ins "ValueRange":$inputs, "Value":$init,
-        "StringAttr":$symbol, CArg<"ArrayRef<NamedAttribute>",
-        "{}">:$attributes)>,
-    OpBuilder<(ins "ValueRange":$inputs, "Value":$init,
-        "StringRef":$symbol, CArg<"ArrayRef<NamedAttribute>",
-        "{}">:$attributes)>,
+  let builders =
+      [OpBuilder<(ins "ValueRange":$inputs, "Value":$init, "StringAttr":$symbol,
+           CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>,
+       OpBuilder<(ins "ValueRange":$inputs, "Value":$init, "StringRef":$symbol,
+           CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>,
   ];
 
   let extraClassDeclaration = [{
@@ -1097,7 +1027,8 @@ def LibdeviceCallOp : Op<LinalgExt_Dialect, "libdevice_call", [
 //===----------------------------------------------------------------------===//
 // ScalarLibdeviceCall op.
 //===----------------------------------------------------------------------===//
-def ScalarLibdeviceCallOp : LinalgExt_PureOp<"scalar_libdevice_call", [NoMemoryEffect]> {
+def ScalarLibdeviceCallOp
+    : LinalgExt_PureOp<"scalar_libdevice_call", [NoMemoryEffect]> {
   let summary = "LinalgExt scalar_libdevice_call op";
   let description = [{
     `linalg_ext.scalar_libdevice_call` is used to undertake operators that need to call
@@ -1112,11 +1043,10 @@ def ScalarLibdeviceCallOp : LinalgExt_PureOp<"scalar_libdevice_call", [NoMemoryE
   }];
 
   let arguments = (ins
-    // Input args
-    Variadic<AnyType>:$inputs,
-    // function name
-    StrAttr:$symbol
-  );
+      // Input args
+      Variadic<AnyType>:$inputs,
+      // function name
+      StrAttr:$symbol);
 
   let results = (outs AnyType:$result);
   let assemblyFormat = [{
@@ -1125,11 +1055,7 @@ def ScalarLibdeviceCallOp : LinalgExt_PureOp<"scalar_libdevice_call", [NoMemoryE
       `symbol` `=` $symbol
       `->` type($result)
     }];
-  let builders = [
-    OpBuilder<(ins "mlir::Type":$resultType, "ValueRange":$inputs,
-        "StringAttr":$symbol, CArg<"ArrayRef<NamedAttribute>",
-        "{}">:$attributes)>,
-  ];
+  let builders = [];
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
 }
@@ -1158,10 +1084,7 @@ def HistogramOp : LinalgExtBase_Op<"histogram", []> {
     ```
   }];
 
-  let arguments = (ins
-    Variadic<TensorOrMemref>:$src,
-    TensorOrMemref:$init
-  );
+  let arguments = (ins Variadic<TensorOrMemref>:$src, TensorOrMemref:$init);
   let results = (outs Variadic<AnyTensor>:$result);
 
   let assemblyFormat = [{
@@ -1170,7 +1093,7 @@ def HistogramOp : LinalgExtBase_Op<"histogram", []> {
     (`->` type($result)^)?
   }];
 
-  let extraClassDeclaration =  [{
+  let extraClassDeclaration = [{
     ShapedType getInitType() {
       return mlir::cast<ShapedType>(getInit().getType());
     }
@@ -1200,12 +1123,9 @@ def FlipOp : LinalgExtBase_Op<"flip", []> {
     - If `dims = [0, 1]`, the result will be `[[6, 5, 4], [3, 2, 1]]` (flipping along both dimensions).
   }];
 
-  let arguments = (ins
-    TensorOrMemref:$input,
-    TensorOrMemref:$init,
-    ConfinedAttr<DenseI64ArrayAttr,
-                 [DenseArrayStrictlySorted<DenseI64ArrayAttr>]>:$dims
-  );
+  let arguments = (ins TensorOrMemref:$input, TensorOrMemref:$init,
+      ConfinedAttr<DenseI64ArrayAttr, [DenseArrayStrictlySorted<
+                                          DenseI64ArrayAttr>]>:$dims);
   let results = (outs Variadic<AnyTensor>:$result);
 
   let assemblyFormat = [{
@@ -1214,7 +1134,7 @@ def FlipOp : LinalgExtBase_Op<"flip", []> {
     `outs` `(` $init `:` type($init) `)`
     (`->` type($result)^)?
   }];
-  let extraClassDeclaration =  [{
+  let extraClassDeclaration = [{
     LogicalResult reifyResultShapes(OpBuilder &b,
                                     ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
       return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);

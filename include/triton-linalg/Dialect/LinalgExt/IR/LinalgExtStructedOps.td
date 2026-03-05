@@ -18,8 +18,9 @@ include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtBase.td"
 // Op definition for BatchConv2DNhwcFhwcOp
 //===----------------------------------------------------------------------===//
 
-def BatchConv2DNhwcFhwcOp : LinalgStructuredBase_Op<"batch_conv_2d_nhwc_fhwc",
-    [AttrSizedOperandSegments]> {
+def BatchConv2DNhwcFhwcOp
+    : LinalgStructuredBase_Op<
+          "batch_conv_2d_nhwc_fhwc", [AttrSizedOperandSegments]> {
   let summary = [{ Performs a batched 2-D convolution. }];
   let description = [{
     Layout:
@@ -30,52 +31,53 @@ def BatchConv2DNhwcFhwcOp : LinalgStructuredBase_Op<"batch_conv_2d_nhwc_fhwc",
     them to the same data type as the accumulator/output.
   }];
 
-  let arguments = (ins
-    Variadic<AnyType>:$inputs,
-    Variadic<AnyShaped>:$outputs,
-    DefaultValuedAttr<RankedI64ElementsAttr<[2]>, "{ static_cast<int64_t>(1), static_cast<int64_t>(1) }">:$strides,
-    DefaultValuedAttr<RankedI64ElementsAttr<[2]>, "{ static_cast<int64_t>(1), static_cast<int64_t>(1) }">:$dilations
-  );
+  let arguments =
+      (ins Variadic<AnyType>:$inputs, Variadic<AnyShaped>:$outputs,
+          DefaultValuedAttr<
+              RankedI64ElementsAttr<[2]>,
+              "{ static_cast<int64_t>(1), static_cast<int64_t>(1) }">:$strides,
+          DefaultValuedAttr<RankedI64ElementsAttr<[2]>,
+                            "{ static_cast<int64_t>(1), "
+                            "static_cast<int64_t>(1) }">:$dilations);
   let results = (outs Variadic<AnyRankedTensor>:$result_tensors);
   let regions = (region AnyRegion:$region);
 
   let skipDefaultBuilders = 1;
-  let builders = [
-    OpBuilder<
-    (ins "ValueRange":$inputs, "ValueRange":$outputs,
-        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
-    [{
+  let builders =
+      [OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$outputs,
+                     CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+                 [{
       buildStructuredOp($_builder, $_state, std::nullopt, inputs, outputs,
           attributes, BatchConv2DNhwcFhwcOp::getRegionBuilder());
     }]>,
-    OpBuilder<
-    (ins "TypeRange":$resultTensorTypes, "ValueRange":$inputs, "ValueRange":$outputs,
-        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
-    [{
+       OpBuilder<(ins "TypeRange":$resultTensorTypes, "ValueRange":$inputs,
+                     "ValueRange":$outputs,
+                     CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+                 [{
       buildStructuredOp($_builder, $_state, resultTensorTypes, inputs, outputs,
           attributes, BatchConv2DNhwcFhwcOp::getRegionBuilder());
     }]>,
-    OpBuilder<
-    (ins "TypeRange":$resultTensorTypes, "ValueRange":$inputs, "ValueRange":$outputs,
-        "Attribute":$strides, "Attribute":$dilations,
-        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
-    [{
+       OpBuilder<(ins "TypeRange":$resultTensorTypes, "ValueRange":$inputs,
+                     "ValueRange":$outputs, "Attribute":$strides,
+                     "Attribute":$dilations,
+                     CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+                 [{
       $_state.addAttribute("strides", strides);
       $_state.addAttribute("dilations", dilations);
       buildStructuredOp($_builder, $_state, resultTensorTypes, inputs, outputs,
           attributes, BatchConv2DNhwcFhwcOp::getRegionBuilder());
-    }]>
-  ];
+    }]>];
 
   let hasCustomAssemblyFormat = 1;
   let hasFolder = 1;
 
-  let extraClassDeclaration = structuredOpsBaseDecls # [{
+  let extraClassDeclaration = structuredOpsBaseDecls#[{
     SmallVector<mlir::utils::IteratorType> getIteratorTypesArray();
     ArrayAttr getIndexingMaps();
     static void regionBuilder(ImplicitLocOpBuilder &b,
-                              Block &block, ArrayRef<NamedAttribute> attrs);
-    static std::function<void(ImplicitLocOpBuilder &, Block &, ArrayRef<NamedAttribute>)>
+                              Block &block, ArrayRef<NamedAttribute> attrs,
+                              function_ref<InFlightDiagnostic()> emitError);
+    static linalg_ext::LinalgExtDialect::RegionBuilderFunType
       getRegionBuilder() {
       return regionBuilder;
     }
@@ -93,8 +95,8 @@ def BatchConv2DNhwcFhwcOp : LinalgStructuredBase_Op<"batch_conv_2d_nhwc_fhwc",
 // Op definition for MakeRangeOp
 //===----------------------------------------------------------------------===//
 
-def MakeRangeOp : LinalgStructuredBase_Op<"make_range",
-    [AttrSizedOperandSegments]> {
+def MakeRangeOp
+    : LinalgStructuredBase_Op<"make_range", [AttrSizedOperandSegments]> {
   let summary = [{ MakeRange operator. }];
   let description = [{
     Operation to define a 1D tensor of static given shape, the given shape is
@@ -102,53 +104,45 @@ def MakeRangeOp : LinalgStructuredBase_Op<"make_range",
     is its index value.
   }];
 
-  let arguments = (ins
-    Variadic<I32>:$inputs,
-    Variadic<AnyShaped>:$outputs
-  );
+  let arguments = (ins Variadic<I32>:$inputs, Variadic<AnyShaped>:$outputs);
   let results = (outs Variadic<AnyRankedTensor>:$result_tensors);
   let regions = (region AnyRegion:$region);
 
   let skipDefaultBuilders = 1;
-  let builders = [
-    OpBuilder<
-    (ins "ValueRange":$inputs, "ValueRange":$outputs,
-          CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
-    [{
+  let builders =
+      [OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$outputs,
+                     CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+                 [{
       buildStructuredOp($_builder, $_state, std::nullopt, inputs, outputs,
         attributes, MakeRangeOp::getRegionBuilder());
     }]>,
-    OpBuilder<
-    (ins "TypeRange":$resultTensorTypes, "ValueRange":$inputs,
-          "ValueRange":$outputs,
-          CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
-    [{
+       OpBuilder<(ins "TypeRange":$resultTensorTypes, "ValueRange":$inputs,
+                     "ValueRange":$outputs,
+                     CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+                 [{
       buildStructuredOp($_builder, $_state, resultTensorTypes,
         inputs, outputs, attributes, MakeRangeOp::getRegionBuilder());
     }]>,
-    OpBuilder<
-    (ins "TypeRange":$resultTensorTypes, "ValueRange":$operands,
-          CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
-    [{
+       OpBuilder<(ins "TypeRange":$resultTensorTypes, "ValueRange":$operands,
+                     CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+                 [{
       $_state.addOperands(operands);
       $_state.addAttributes(attributes);
       $_state.addTypes(resultTensorTypes);
       (void)$_state.addRegion();
-    }]>
-  ];
+    }]>];
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
   let hasFolder = 1;
 
-
-  let extraClassDeclaration = structuredOpsBaseDecls # [{
+  let extraClassDeclaration = structuredOpsBaseDecls#[{
     // Auto-generated.
     SmallVector<mlir::utils::IteratorType> getIteratorTypesArray();
     ArrayAttr getIndexingMaps();
     static void regionBuilder(ImplicitLocOpBuilder &b,
-                              Block &block, ArrayRef<NamedAttribute> attrs);
-    static std::function<void(ImplicitLocOpBuilder &,
-                              Block &, ArrayRef<NamedAttribute>)>
+                              Block &block, ArrayRef<NamedAttribute> attrs,
+                              function_ref<InFlightDiagnostic()> emitError);
+    static linalg_ext::LinalgExtDialect::RegionBuilderFunType
     getRegionBuilder() {
       return regionBuilder;
     }
@@ -209,65 +203,60 @@ def Im2ColOp : LinalgStructuredBase_Op<"im2col", [AttrSizedOperandSegments]> {
     // TODO: add support for conv3d.
   }];
 
-    let arguments = (ins
-      Variadic<AnyType>:$inputs,
-      Variadic<AnyShaped>:$outputs,
-      DefaultValuedAttr<RankedI64ElementsAttr<[2]>, "{ static_cast<int64_t>(1), static_cast<int64_t>(1) }">:$strides
-    );
-    let results = (outs Variadic<AnyRankedTensor>:$result_tensors);
-    let regions = (region AnyRegion:$region);
+  let arguments =
+      (ins Variadic<AnyType>:$inputs, Variadic<AnyShaped>:$outputs,
+          DefaultValuedAttr<
+              RankedI64ElementsAttr<[2]>,
+              "{ static_cast<int64_t>(1), static_cast<int64_t>(1) }">:$strides);
+  let results = (outs Variadic<AnyRankedTensor>:$result_tensors);
+  let regions = (region AnyRegion:$region);
 
-    let skipDefaultBuilders = 1;
-    let builders = [
-      OpBuilder<
-      (ins "ValueRange":$inputs, "ValueRange":$outputs,
-            CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
-      [{
+  let skipDefaultBuilders = 1;
+  let builders =
+      [OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$outputs,
+                     CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+                 [{
         buildStructuredOp($_builder, $_state, std::nullopt, inputs, outputs,
           attributes, Im2ColOp::getRegionBuilder());
       }]>,
-      OpBuilder<
-      (ins "TypeRange":$resultTensorTypes, "ValueRange":$inputs,
-            "ValueRange":$outputs,
-            CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
-      [{
+       OpBuilder<(ins "TypeRange":$resultTensorTypes, "ValueRange":$inputs,
+                     "ValueRange":$outputs,
+                     CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+                 [{
         buildStructuredOp($_builder, $_state, resultTensorTypes,
           inputs, outputs, attributes, Im2ColOp::getRegionBuilder());
       }]>,
-      OpBuilder<
-      (ins "TypeRange":$resultTensorTypes, "ValueRange":$operands,
-            CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
-      [{
+       OpBuilder<(ins "TypeRange":$resultTensorTypes, "ValueRange":$operands,
+                     CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+                 [{
         $_state.addOperands(operands);
         $_state.addAttributes(attributes);
         $_state.addTypes(resultTensorTypes);
         (void)$_state.addRegion();
       }]>,
-      OpBuilder<
-      (ins "TypeRange":$resultTensorTypes, "ValueRange":$inputs,
-           "ValueRange":$outputs, "Attribute":$strides,
-           CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
-      [{
+       OpBuilder<(ins "TypeRange":$resultTensorTypes, "ValueRange":$inputs,
+                     "ValueRange":$outputs, "Attribute":$strides,
+                     CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+                 [{
         $_state.addAttribute("strides", strides);
         buildStructuredOp($_builder, $_state, resultTensorTypes, inputs, outputs,
           attributes, Im2ColOp::getRegionBuilder());
-      }]>
-    ];
+      }]>];
 
-    let hasCustomAssemblyFormat = 1;
-    let hasFolder = 1;
+  let hasCustomAssemblyFormat = 1;
+  let hasFolder = 1;
 
-    let extraClassDeclaration = structuredOpsBaseDecls # [{
+  let extraClassDeclaration = structuredOpsBaseDecls#[{
       // Auto-generated.
       SmallVector<mlir::utils::IteratorType> getIteratorTypesArray();
       ArrayAttr getIndexingMaps();
-      static void regionBuilder(ImplicitLocOpBuilder &b,
-                                Block &block, ArrayRef<NamedAttribute> attrs);
-      static std::function<void(ImplicitLocOpBuilder &,
-                                Block &, ArrayRef<NamedAttribute>)>
-      getRegionBuilder() {
-        return regionBuilder;
-      }
+    static void regionBuilder(ImplicitLocOpBuilder &b,
+                              Block &block, ArrayRef<NamedAttribute> attrs,
+                              function_ref<InFlightDiagnostic()> emitError);
+    static linalg_ext::LinalgExtDialect::RegionBuilderFunType
+    getRegionBuilder() {
+      return regionBuilder;
+    }
 
       // Generic methods.
       static unsigned getNumRegionArgs();
@@ -283,9 +272,11 @@ def Im2ColOp : LinalgStructuredBase_Op<"im2col", [AttrSizedOperandSegments]> {
 //===----------------------------------------------------------------------===//
 
 class NaiveReduceBaseOp<string mnemonic, list<Trait> props>
-  : LinalgStructuredBase_Op<mnemonic, !listconcat([
-    DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
-    SameVariadicOperandSize], props)> {
+    : LinalgStructuredBase_Op<
+          mnemonic, !listconcat([DeclareOpInterfaceMethods<
+                                     OpAsmOpInterface, ["getAsmResultNames"]>,
+                                 SameVariadicOperandSize],
+                                props)> {
   let summary = "Naive reduce base operator";
   let description = [{
     Executes `combiner` on the `dimensions` of `inputs` and returns the
@@ -294,25 +285,22 @@ class NaiveReduceBaseOp<string mnemonic, list<Trait> props>
   }];
 
   let arguments = (ins
-    // Input arg
-    Variadic<TensorOrMemref>:$inputs,
-    // Output arg
-    Variadic<TensorOrMemref>:$inits,
+      // Input arg
+      Variadic<TensorOrMemref>:$inputs,
+      // Output arg
+      Variadic<TensorOrMemref>:$inits,
 
-    ConfinedAttr<DenseI64ArrayAttr,
-                 [DenseArrayStrictlySorted<DenseI64ArrayAttr>]>:$dimensions
-  );
+      ConfinedAttr<DenseI64ArrayAttr, [DenseArrayStrictlySorted<
+                                          DenseI64ArrayAttr>]>:$dimensions);
   let results = (outs Variadic<AnyTensor>);
   let regions = (region SizedRegion<1>:$combiner);
 
-  let builders = [
-    OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
+  let builders = [OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
       "ArrayRef<int64_t>":$dimensions,
       "function_ref<void(OpBuilder &, Location, ValueRange)>",
-      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
-  ];
+      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>];
 
-  let extraClassDeclaration = structuredOpsBaseDecls # [{
+  let extraClassDeclaration = structuredOpsBaseDecls#[{
     // Declare functions necessary for LinalgStructuredInterface.
     SmallVector<mlir::utils::IteratorType> getIteratorTypesArray() {
       int64_t inputRank = mlir::cast<ShapedType>(getInputs()[0].getType()).getRank();
@@ -345,10 +333,10 @@ class NaiveReduceBaseOp<string mnemonic, list<Trait> props>
       return "op_has_no_registered_library_name";
     }
     static void regionBuilder(ImplicitLocOpBuilder &b,
-                              Block &block, ArrayRef<NamedAttribute> attrs);
+                              Block &block, ArrayRef<NamedAttribute> attrs,
+                              function_ref<InFlightDiagnostic()> emitError);
     // Implement functions necessary for DestinationStyleOpInterface.
-    static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,
-                              mlir::ArrayRef<mlir::NamedAttribute>)>
+    static linalg_ext::LinalgExtDialect::RegionBuilderFunType
     getRegionBuilder() {
       return regionBuilder;
     }
@@ -512,6 +500,7 @@ def ReduceMinNanOp : NaiveReduceBaseOp<"reduce_min_nan", []> {
 // Named LinalgExt ops.
 //===----------------------------------------------------------------------===//
 
-include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtNamedStructuredOps.yamlgen.td"
+include
+    "triton-linalg/Dialect/LinalgExt/IR/LinalgExtNamedStructuredOps.yamlgen.td"
 
 #endif // TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTSTRUCTEDOPS_TD
